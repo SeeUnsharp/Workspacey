@@ -29,6 +29,8 @@ public sealed class KGlobalAccelPickShortcutService(
     private static readonly DBusMethod ShortcutKeys = Method("shortcutKeys");
     private static readonly DBusMethod SetShortcutKeys = Method("setShortcutKeys");
     private static readonly DBusMethod BlockGlobalShortcuts = Method("blockGlobalShortcuts");
+    private static readonly DBusMethod GlobalShortcutAvailable = Method("globalShortcutAvailable");
+    private static readonly DBusMethod GlobalShortcutsByKey = Method("globalShortcutsByKey");
 
     public Task SetGlobalShortcutsPausedAsync(bool paused, CancellationToken cancellationToken = default) =>
         BlockGlobalShortcuts
@@ -39,22 +41,28 @@ public sealed class KGlobalAccelPickShortcutService(
     {
         if (!File.Exists(KdeDesktopIntegration.PickEntryPath)) return null;
 
-        var keys = await ShortcutKeys
-            .CallAsync(connection, static (message, _) => ReadKeySequences(message), "as",
-                (ref MessageWriter writer) => writer.WriteArray(ActionId))
-            .WaitAsync(cancellationToken)
-            .ConfigureAwait(false);
-
+        var keys = await ReadKeysAsync(cancellationToken).ConfigureAwait(false);
         return keys.SelectMany(sequence => sequence.Take(1))
             .Select(code => KeyChord.TryFromQtKeyCombination(code, out var chord) ? chord : null)
             .FirstOrDefault(chord => chord is not null);
     }
 
-    public async Task<bool> SetAsync(KeyChord chord, CancellationToken cancellationToken = default)
+    public async Task<ShortcutResult> SetAsync(KeyChord chord, CancellationToken cancellationToken = default)
     {
         if (!chord.IsValidGlobalShortcut)
         {
             throw new ArgumentException($"'{chord}' cannot be used as a global shortcut.", nameof(chord));
+        }
+
+        var combination = chord.ToQtKeyCombination();
+
+        // setShortcutKeys does not reliably refuse taken keys (e.g. KWin's own Meta+G is accepted, then
+        // never fires), so check first, like KDE's shortcut editor does.
+        if (!await IsAvailableAsync(combination, cancellationToken).ConfigureAwait(false))
+        {
+            var owner = await FindOwnerAsync(combination, cancellationToken).ConfigureAwait(false);
+            logger.LogWarning("{Chord} is already used by {Owner}", chord, owner ?? "another action");
+            return new ShortcutResult(Accepted: false, owner);
         }
 
         await desktopIntegration.InstallPickLauncherAsync(cancellationToken).ConfigureAwait(false);
@@ -64,14 +72,88 @@ public sealed class KGlobalAccelPickShortcutService(
             .WaitAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var combination = chord.ToQtKeyCombination();
-        var assigned = await WriteKeysAsync([combination], cancellationToken).ConfigureAwait(false);
+        var previous = await ReadKeysAsync(cancellationToken).ConfigureAwait(false);
+        var assigned = await WriteKeysAsync([[combination]], cancellationToken).ConfigureAwait(false);
 
-        // kglobalaccel silently drops keys that another action already owns.
+        // If kglobalaccel still drops the key, it stores what is left (nothing), which would wipe the
+        // working shortcut. Put the previous keys back in that case.
         var accepted = assigned.Any(sequence => sequence.FirstOrDefault() == combination);
-        if (accepted) logger.LogInformation("Registered pick shortcut {Chord}", chord);
-        else logger.LogWarning("kglobalaccel rejected {Chord}; it is probably used by another action", chord);
-        return accepted;
+        if (accepted)
+        {
+            logger.LogInformation("Registered pick shortcut {Chord}", chord);
+        }
+        else
+        {
+            logger.LogWarning("kglobalaccel rejected {Chord}", chord);
+            await WriteKeysAsync(previous, cancellationToken).ConfigureAwait(false);
+        }
+
+        return new ShortcutResult(accepted);
+    }
+
+    /// <summary>True if no action of another component uses the combination.</summary>
+    private Task<bool> IsAvailableAsync(int combination, CancellationToken cancellationToken) =>
+        GlobalShortcutAvailable
+            .CallAsync(
+                connection,
+                static (message, _) => message.GetBodyReader().ReadBool(),
+                "(ai)s",
+                (ref MessageWriter writer) =>
+                {
+                    writer.WriteStructureStart();
+                    writer.WriteArray(new[] { combination });
+                    writer.WriteString(ActionId[0]);
+                })
+            .WaitAsync(cancellationToken);
+
+    /// <summary>"Action (Component)" of whoever owns the combination, e.g. "Übersicht umschalten (KWin)".</summary>
+    private async Task<string?> FindOwnerAsync(int combination, CancellationToken cancellationToken)
+    {
+        // KGlobalAccel::MatchType::Equal
+        const int EqualMatch = 0;
+
+        var owners = await GlobalShortcutsByKey
+            .CallAsync(
+                connection,
+                static (message, _) => ReadShortcutInfos(message),
+                "(ai)(i)",
+                (ref MessageWriter writer) =>
+                {
+                    writer.WriteStructureStart();
+                    writer.WriteArray(new[] { combination });
+                    writer.WriteStructureStart();
+                    writer.WriteInt32(EqualMatch);
+                })
+            .WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return owners
+            .Where(owner => owner.Component != ActionId[0])
+            .Select(owner => $"{owner.Action} ({owner.ComponentName})")
+            .FirstOrDefault();
+    }
+
+    /// <summary>Reads a(ssssssaiai): KGlobalShortcutInfo list.</summary>
+    private static List<(string Action, string Component, string ComponentName)> ReadShortcutInfos(Message message)
+    {
+        var reader = message.GetBodyReader();
+        var infos = new List<(string, string, string)>();
+        var end = reader.ReadArrayStart(DBusType.Struct);
+        while (reader.HasNext(end))
+        {
+            reader.AlignStruct();
+            reader.ReadString(); // action unique name
+            var actionFriendly = reader.ReadString();
+            var component = reader.ReadString();
+            var componentFriendly = reader.ReadString();
+            reader.ReadString(); // context unique name
+            reader.ReadString(); // context friendly name
+            reader.ReadArrayOfInt32(); // keys
+            reader.ReadArrayOfInt32(); // default keys
+            infos.Add((actionFriendly, component, componentFriendly));
+        }
+
+        return infos;
     }
 
     public async Task ClearAsync(CancellationToken cancellationToken = default)
@@ -80,7 +162,14 @@ public sealed class KGlobalAccelPickShortcutService(
         await WriteKeysAsync([], cancellationToken).ConfigureAwait(false);
     }
 
-    private Task<List<int[]>> WriteKeysAsync(IReadOnlyList<int> combinations, CancellationToken cancellationToken) =>
+    private Task<List<int[]>> ReadKeysAsync(CancellationToken cancellationToken) =>
+        ShortcutKeys
+            .CallAsync(connection, static (message, _) => ReadKeySequences(message), "as",
+                (ref MessageWriter writer) => writer.WriteArray(ActionId))
+            .WaitAsync(cancellationToken);
+
+    /// <param name="sequences">QKeySequences, each holding up to four key combinations.</param>
+    private Task<List<int[]>> WriteKeysAsync(IReadOnlyList<int[]> sequences, CancellationToken cancellationToken) =>
         SetShortcutKeys
             .CallAsync(
                 connection,
@@ -90,11 +179,11 @@ public sealed class KGlobalAccelPickShortcutService(
                 {
                     writer.WriteArray(ActionId);
                     var array = writer.WriteArrayStart(DBusType.Struct);
-                    foreach (var combination in combinations)
+                    foreach (var sequence in sequences)
                     {
-                        // QKeySequence is marshalled as a struct holding up to four key combinations.
+                        // QKeySequence is marshalled as a struct holding an int array.
                         writer.WriteStructureStart();
-                        writer.WriteArray(new[] { combination });
+                        writer.WriteArray(sequence);
                     }
 
                     writer.WriteArrayEnd(array);

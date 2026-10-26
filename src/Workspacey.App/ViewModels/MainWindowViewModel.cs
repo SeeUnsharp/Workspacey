@@ -183,7 +183,8 @@ public sealed partial class MainWindowViewModel(
 
         try
         {
-            if (await shortcuts.SetAsync(chord))
+            var result = await shortcuts.SetAsync(chord);
+            if (result.Accepted)
             {
                 _registeredChord = chord;
                 ShortcutText = chord.ToString();
@@ -191,7 +192,9 @@ public sealed partial class MainWindowViewModel(
             }
             else
             {
-                SetStatus($"{chord} is already used by another shortcut. Choose a different combination.", isError: true);
+                // The previous shortcut stays active, so ShortcutText remains correct.
+                var owner = result.ConflictingAction is { } action ? $"\"{action}\"" : "another shortcut";
+                SetStatus($"{chord} is already used by {owner}. Choose a different combination.", isError: true);
             }
         }
         catch (Exception e)
@@ -421,7 +424,8 @@ public sealed class RuleItemViewModel : ViewModelBase
         ClassMatchMode.Exact => $"class = {Rule.WindowClass}",
         ClassMatchMode.Substring => $"class contains {Rule.WindowClass}",
         _ => $"class matches /{Rule.WindowClass}/",
-    } + (Rule.Policy == RulePolicy.Force ? " · forced" : string.Empty);
+    } + (Rule.Policy == RulePolicy.Force ? " · forced" : string.Empty)
+      + (Rule.HasOtherConditions ? " · more conditions (see KDE Window Rules)" : string.Empty);
 
     public IRelayCommand<RuleItemViewModel> DeleteCommand { get; }
 
