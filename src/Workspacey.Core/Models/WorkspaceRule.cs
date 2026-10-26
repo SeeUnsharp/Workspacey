@@ -25,10 +25,16 @@ public enum RulePolicy
 /// <param name="MatchMode">How <paramref name="WindowClass"/> is compared.</param>
 /// <param name="DesktopIds">Target desktops (usually exactly one).</param>
 /// <param name="Policy">When the rule is enforced.</param>
+/// <param name="HasOtherConditions">
+/// The rule also matches on something Workspacey does not evaluate (title, window role, machine,
+/// window types, or the complete "name class" string). Such rules are listed and can be edited, but
+/// are never assumed to match a picked window.
+/// </param>
 public sealed record WorkspaceRule(
     string Id,
     string Description,
     string WindowClass,
     ClassMatchMode MatchMode,
     IReadOnlyList<string> DesktopIds,
-    RulePolicy Policy);
+    RulePolicy Policy,
+    bool HasOtherConditions = false);

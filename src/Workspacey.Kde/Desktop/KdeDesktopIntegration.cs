@@ -71,6 +71,17 @@ public sealed class KdeDesktopIntegration(AppLauncher launcher, ILogger<KdeDeskt
         await RebuildServiceCacheAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Removes the hidden launcher (and the icon, unless the menu entry still uses it).</summary>
+    internal async Task RemovePickLauncherAsync(CancellationToken cancellationToken)
+    {
+        if (!File.Exists(PickEntryPath)) return;
+
+        File.Delete(PickEntryPath);
+        if (!IsMenuEntryInstalled) File.Delete(IconPath);
+        await RebuildServiceCacheAsync(cancellationToken).ConfigureAwait(false);
+        logger.LogInformation("Removed shortcut launcher {Path}", PickEntryPath);
+    }
+
     /// <summary>Copies the icon into the user's icon theme. Returns false if the app ships no icon.</summary>
     private async Task<bool> InstallIconAsync(CancellationToken cancellationToken)
     {

@@ -60,6 +60,11 @@ public sealed partial class MainWindowViewModel(
     [ObservableProperty]
     public partial bool IsRecording { get; private set; }
 
+    /// <summary>The recorded combination belongs to another action; Apply stays disabled.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplyShortcutCommand))]
+    public partial bool RecordedChordIsTaken { get; private set; }
+
     [ObservableProperty]
     public partial string? StatusMessage { get; private set; }
 
@@ -142,8 +147,9 @@ public sealed partial class MainWindowViewModel(
             if (chord.IsValidGlobalShortcut)
             {
                 RecordedChord = chord;
-                SetStatus($"Click Apply to use {chord}.");
+                RecordedChordIsTaken = false;
                 StopRecording();
+                _ = CheckRecordedChordAsync(chord);
             }
             else
             {
@@ -151,6 +157,35 @@ public sealed partial class MainWindowViewModel(
             }
         }
     }
+
+    /// <summary>Tells right away whether the recorded combination is free, instead of only after Apply.</summary>
+    private async Task CheckRecordedChordAsync(KeyChord chord)
+    {
+        if (chord == _registeredChord)
+        {
+            SetStatus($"{chord} is already your pick shortcut.");
+            return;
+        }
+
+        try
+        {
+            var availability = await shortcuts.CheckAvailabilityAsync(chord);
+            if (RecordedChord != chord) return; // the user recorded something else meanwhile
+
+            RecordedChordIsTaken = !availability.Accepted;
+            if (availability.Accepted) SetStatus($"{chord} is free. Click Apply to use it.");
+            else SetStatus(ConflictMessage(chord, availability.ConflictingAction), isError: true);
+        }
+        catch (Exception e)
+        {
+            // Not fatal: Apply checks again and reports a conflict then.
+            logger.LogWarning(e, "Checking {Chord} for conflicts failed", chord);
+            SetStatus($"Click Apply to use {chord}.");
+        }
+    }
+
+    private static string ConflictMessage(KeyChord chord, string? owner) =>
+        $"{chord} is already used by {(owner is null ? "another shortcut" : $"\"{owner}\"")}. Record a different combination.";
 
     partial void OnIsRecordingChanged(bool value)
     {
@@ -174,7 +209,7 @@ public sealed partial class MainWindowViewModel(
         }
     }
 
-    private bool CanApplyShortcut() => RecordedChord is not null && RecordedChord != _registeredChord;
+    private bool CanApplyShortcut() => RecordedChord is not null && RecordedChord != _registeredChord && !RecordedChordIsTaken;
 
     [RelayCommand(CanExecute = nameof(CanApplyShortcut))]
     private async Task ApplyShortcutAsync()
@@ -183,7 +218,8 @@ public sealed partial class MainWindowViewModel(
 
         try
         {
-            if (await shortcuts.SetAsync(chord))
+            var result = await shortcuts.SetAsync(chord);
+            if (result.Accepted)
             {
                 _registeredChord = chord;
                 ShortcutText = chord.ToString();
@@ -191,7 +227,8 @@ public sealed partial class MainWindowViewModel(
             }
             else
             {
-                SetStatus($"{chord} is already used by another shortcut. Choose a different combination.", isError: true);
+                // The previous shortcut stays active, so ShortcutText remains correct.
+                SetStatus(ConflictMessage(chord, result.ConflictingAction), isError: true);
             }
         }
         catch (Exception e)
@@ -421,7 +458,8 @@ public sealed class RuleItemViewModel : ViewModelBase
         ClassMatchMode.Exact => $"class = {Rule.WindowClass}",
         ClassMatchMode.Substring => $"class contains {Rule.WindowClass}",
         _ => $"class matches /{Rule.WindowClass}/",
-    } + (Rule.Policy == RulePolicy.Force ? " · forced" : string.Empty);
+    } + (Rule.Policy == RulePolicy.Force ? " · forced" : string.Empty)
+      + (Rule.HasOtherConditions ? " · more conditions (see KDE Window Rules)" : string.Empty);
 
     public IRelayCommand<RuleItemViewModel> DeleteCommand { get; }
 

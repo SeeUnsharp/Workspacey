@@ -136,6 +136,83 @@ public sealed class KWinRulesRepositoryTests : IDisposable
         Assert.Contains("[r1]", await File.ReadAllTextAsync(target), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("title=Picture-in-Picture\ntitlematch=1", true)]
+    [InlineData("title=ignored\ntitlematch=0", false)] // 0 = "unimportant" in KWin
+    [InlineData("windowrole=pip\nwindowrolematch=2", true)]
+    [InlineData("clientmachine=host\nclientmachinematch=1", true)]
+    [InlineData("wmclasscomplete=true", true)]
+    [InlineData("types=1", true)]
+    [InlineData("types=65535", false)] // all window types
+    public async Task GetAll_FlagsRulesWithOtherConditions(string extraKeys, bool expected)
+    {
+        await File.WriteAllTextAsync(RulesFile, $"""
+            [General]
+            Order=r
+
+            [r]
+            desktops=d
+            desktopsrule=3
+            wmclass=firefox
+            wmclassmatch=1
+            {extraKeys}
+            """);
+        using var repository = new KWinRulesRepository(RulesFile);
+
+        Assert.Equal(expected, Assert.Single(await repository.GetAllAsync()).HasOtherConditions);
+    }
+
+    [Fact]
+    public async Task SetDesktops_ChangesOnlyTheDesktops()
+    {
+        await File.WriteAllTextAsync(RulesFile, """
+            [General]
+            Order=r
+
+            [r]
+            Description=Edited elsewhere
+            desktops=old
+            desktopsrule=2
+            wmclass=steam_app_\d+
+            wmclassmatch=3
+            """);
+        using var repository = new KWinRulesRepository(RulesFile);
+
+        Assert.True(await repository.SetDesktopsAsync("r", ["new"]));
+        Assert.False(await repository.SetDesktopsAsync("missing", ["new"]));
+
+        var rule = Assert.Single(await repository.GetAllAsync());
+        Assert.Equal(["new"], rule.DesktopIds);
+        Assert.Equal(("Edited elsewhere", RulePolicy.Force), (rule.Description, rule.Policy));
+        Assert.Equal(@"steam_app_\d+", rule.WindowClass); // unknown escape survives the rewrite
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task Save_KeepsFilePermissionsAndLeavesNoTempFile()
+    {
+        await File.WriteAllTextAsync(RulesFile, "");
+        File.SetUnixFileMode(RulesFile, UnixFileMode.UserRead | UnixFileMode.UserWrite); // 0600
+        using var repository = new KWinRulesRepository(RulesFile);
+
+        await repository.SaveAsync(NewRule("r1"));
+
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(RulesFile));
+        Assert.Equal(["kwinrulesrc"], Directory.GetFiles(_directory).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public async Task Save_RenameFails_LeavesNoTempFile()
+    {
+        Directory.CreateDirectory(RulesFile); // a directory in the way makes the final rename fail
+        using var repository = new KWinRulesRepository(RulesFile);
+
+        await Assert.ThrowsAnyAsync<IOException>(() => repository.SaveAsync(NewRule("r1")));
+
+        Assert.Empty(Directory.GetFiles(_directory));
+    }
+
     private static WorkspaceRule NewRule(string id) =>
         new(id, "A game", "steam_app_42", ClassMatchMode.Exact, ["desk-1"], RulePolicy.ApplyInitially);
 }

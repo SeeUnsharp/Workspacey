@@ -34,6 +34,8 @@ public class AppLauncherTests
     [InlineData("/plain/path", "/plain/path")]
     [InlineData("/with space/app", "\"/with space/app\"")]
     [InlineData("/cost$/app", "\"/cost\\\\$/app\"")] // \$ in the Exec value, written as \\$ (KConfig escaping)
+    [InlineData("/Apps/Workspacey%20v1.AppImage", "/Apps/Workspacey%%20v1.AppImage")] // % starts a field code
+    [InlineData("/My Apps/100%", "\"/My Apps/100%%\"")]
     public void QuoteExecArgument_FollowsDesktopEntrySpec(string argument, string expected) =>
         Assert.Equal(expected, AppLauncher.QuoteExecArgument(argument));
 

@@ -31,7 +31,7 @@
     </Style>
 
     <Style Selector="TextBlock.error">
-      <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource SystemControlErrorTextForegroundBrush}" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
   </Application.Styles>

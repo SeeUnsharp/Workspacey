@@ -61,6 +61,9 @@ public sealed record AppLauncher(string Executable, IReadOnlyList<string> BaseAr
     /// <summary>Quoting rules of the desktop entry specification's <c>Exec</c> key.</summary>
     internal static string QuoteExecArgument(string argument)
     {
+        // "%" starts a field code (%f, %u, …) anywhere in Exec, even inside quotes; "%%" is a literal "%".
+        argument = argument.Replace("%", "%%", StringComparison.Ordinal);
+
         if (argument.Length > 0 && !argument.Any(c => char.IsWhiteSpace(c) || "\"'\\><~|&;$*?#()`".Contains(c)))
         {
             return argument;
