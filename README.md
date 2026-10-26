@@ -10,6 +10,10 @@ Workspacey writes a regular **KWin window rule**, so from then on the window ope
 even when Workspacey isn't running. The rules show up (and can be edited) in
 *System Settings → Window Management → Window Rules*.
 
+> **Note:** Workspacey is a hobby project I work on in my free time. Most of the code was generated
+> with AI (Claude Code). I reviewed it and tested it on KDE Plasma 6, but please keep that in mind
+> and report anything that looks off in the issues.
+
 ## Requirements
 
 - KDE Plasma 6 (X11 or Wayland)
