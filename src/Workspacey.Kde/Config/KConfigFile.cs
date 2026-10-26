@@ -1,11 +1,13 @@
+using System.Globalization;
 using System.Text;
 
 namespace Workspacey.Kde.Config;
 
 /// <summary>
-/// Minimal reader/writer for KDE's KConfig INI dialect. Group and entry order as well as unknown
-/// groups and keys are preserved, so editing one rule never disturbs the rest of the file.
-/// Values are exposed unescaped; escaping (<c>\n</c>, <c>\t</c>, <c>\\</c>, <c>\s</c>) is handled here.
+/// Minimal reader/writer for KDE's KConfig INI dialect. Group and entry order, unknown groups and
+/// keys, and comment lines are preserved, so editing one rule never disturbs the rest of the file.
+/// Values are exposed unescaped; KConfig's escaping (<c>\n</c>, <c>\t</c>, <c>\r</c>, <c>\\</c>,
+/// <c>\s</c>, <c>\xNN</c>) is handled here.
 /// </summary>
 public sealed class KConfigFile
 {
@@ -26,8 +28,8 @@ public sealed class KConfigFile
 
             if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
             {
-                current = new KConfigGroup(trimmed[1..^1]);
-                file._groups.Add(current);
+                // KConfig merges repeated groups (later values win); do the same so edits aren't shadowed.
+                current = file.GetOrAddGroup(trimmed[1..^1]);
                 continue;
             }
 
@@ -38,10 +40,14 @@ public sealed class KConfigFile
                 continue;
             }
 
-            if (trimmed.Length == 0 || trimmed.StartsWith('#')) continue;
+            if (trimmed.Length == 0) continue;
 
             var separator = line.IndexOf('=', StringComparison.Ordinal);
-            if (separator <= 0) continue;
+            if (trimmed.StartsWith('#') || separator <= 0)
+            {
+                current.AddVerbatim(line);
+                continue;
+            }
 
             current.SetRaw(line[..separator].Trim(), line[(separator + 1)..].TrimStart());
         }
@@ -76,15 +82,13 @@ public sealed class KConfigFile
         {
             if (builder.Length > 0) builder.Append('\n');
             builder.Append('[').Append(group.Name).Append("]\n");
-            foreach (var (key, rawValue) in group.RawEntries)
-            {
-                builder.Append(key).Append('=').Append(rawValue).Append('\n');
-            }
+            foreach (var line in group.Lines) builder.Append(line).Append('\n');
         }
 
         return builder.ToString();
     }
 
+    /// <summary>Mirrors KConfig's <c>stringToPrintable</c>.</summary>
     internal static string Escape(string value)
     {
         var builder = new StringBuilder(value.Length);
@@ -98,6 +102,7 @@ public sealed class KConfigFile
                 case '\t': builder.Append(@"\t"); break;
                 case '\r': builder.Append(@"\r"); break;
                 case ' ' when i == 0 || i == value.Length - 1: builder.Append(@"\s"); break;
+                case < ' ': builder.Append(CultureInfo.InvariantCulture, $@"\x{(int)c:x2}"); break;
                 default: builder.Append(c); break;
             }
         }
@@ -105,51 +110,76 @@ public sealed class KConfigFile
         return builder.ToString();
     }
 
+    /// <summary>
+    /// Mirrors KConfig's <c>printableToString</c>. Unknown escapes such as the <c>\d</c> in a
+    /// hand-written regex are kept as-is (backslash included), exactly like KConfig does.
+    /// <c>\xNN</c> denotes a raw byte of the UTF-8 encoded value.
+    /// </summary>
     internal static string Unescape(string raw)
     {
         if (!raw.Contains('\\', StringComparison.Ordinal)) return raw;
 
-        var builder = new StringBuilder(raw.Length);
-        for (var i = 0; i < raw.Length; i++)
+        var input = Encoding.UTF8.GetBytes(raw);
+        var output = new List<byte>(input.Length);
+        for (var i = 0; i < input.Length; i++)
         {
-            if (raw[i] != '\\' || i == raw.Length - 1)
+            if (input[i] != '\\' || i == input.Length - 1)
             {
-                builder.Append(raw[i]);
+                output.Add(input[i]);
                 continue;
             }
 
-            builder.Append(raw[++i] switch
+            var next = input[++i];
+            switch (next)
             {
-                'n' => '\n',
-                't' => '\t',
-                'r' => '\r',
-                's' => ' ',
-                var other => other, // "\\" -> "\", unknown escapes keep their character
-            });
+                case (byte)'\\': output.Add((byte)'\\'); break;
+                case (byte)'n': output.Add((byte)'\n'); break;
+                case (byte)'t': output.Add((byte)'\t'); break;
+                case (byte)'r': output.Add((byte)'\r'); break;
+                case (byte)'s': output.Add((byte)' '); break;
+                case (byte)'x' when i + 2 < input.Length && IsHex(input[i + 1]) && IsHex(input[i + 2]):
+                    output.Add(byte.Parse(Encoding.ASCII.GetString(input, i + 1, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
+                    i += 2;
+                    break;
+                default:
+                    output.Add((byte)'\\');
+                    output.Add(next);
+                    break;
+            }
         }
 
-        return builder.ToString();
+        return Encoding.UTF8.GetString([.. output]);
     }
+
+    private static bool IsHex(byte b) => b is >= (byte)'0' and <= (byte)'9' or >= (byte)'a' and <= (byte)'f' or >= (byte)'A' and <= (byte)'F';
 }
 
 /// <summary>A <c>[group]</c> of a <see cref="KConfigFile"/>.</summary>
 public sealed class KConfigGroup(string name)
 {
-    private readonly List<KeyValuePair<string, string>> _entries = [];
+    /// <summary>Entries in file order; <c>Key == null</c> marks a verbatim line such as a comment.</summary>
+    private readonly List<(string? Key, string Raw)> _lines = [];
 
     public string Name { get; } = name;
 
-    internal IEnumerable<KeyValuePair<string, string>> RawEntries => _entries;
+    internal IEnumerable<string> Lines => _lines.Select(l => l.Key is null ? l.Raw : $"{l.Key}={l.Raw}");
 
     public bool ContainsKey(string key) => IndexOf(key) >= 0;
 
     public string? Get(string key)
     {
         var index = IndexOf(key);
-        return index < 0 ? null : KConfigFile.Unescape(_entries[index].Value);
+        return index < 0 ? null : KConfigFile.Unescape(_lines[index].Raw);
     }
 
     public int? GetInt(string key) => int.TryParse(Get(key), out var value) ? value : null;
+
+    public bool? GetBool(string key) => Get(key)?.Trim().ToUpperInvariant() switch
+    {
+        "TRUE" or "ON" or "YES" or "1" => true,
+        "FALSE" or "OFF" or "NO" or "0" => false,
+        _ => null,
+    };
 
     /// <summary>Reads a KConfig string list (comma separated; <c>\,</c> and <c>\\</c> are escapes).</summary>
     public IReadOnlyList<string> GetList(string key)
@@ -182,8 +212,7 @@ public sealed class KConfigGroup(string name)
 
     public void Set(string key, string value) => SetRaw(key, KConfigFile.Escape(value));
 
-    public void Set(string key, int value) =>
-        Set(key, value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    public void Set(string key, int value) => Set(key, value.ToString(CultureInfo.InvariantCulture));
 
     public void SetList(string key, IEnumerable<string> items) =>
         Set(key, string.Join(',', items.Select(item => item
@@ -194,17 +223,19 @@ public sealed class KConfigGroup(string name)
     {
         var index = IndexOf(key);
         if (index < 0) return false;
-        _entries.RemoveAt(index);
+        _lines.RemoveAt(index);
         return true;
     }
 
     internal void SetRaw(string key, string rawValue)
     {
         var index = IndexOf(key);
-        if (index >= 0) _entries[index] = new(key, rawValue);
-        else _entries.Add(new(key, rawValue));
+        if (index >= 0) _lines[index] = (key, rawValue);
+        else _lines.Add((key, rawValue));
     }
 
+    internal void AddVerbatim(string line) => _lines.Add((null, line));
+
     private int IndexOf(string key) =>
-        _entries.FindIndex(e => string.Equals(e.Key, key, StringComparison.Ordinal));
+        _lines.FindIndex(l => string.Equals(l.Key, key, StringComparison.Ordinal));
 }
