@@ -13,7 +13,10 @@ public sealed record WindowInfo(
     string ResourceName,
     string DesktopFile)
 {
-    /// <summary>The identifier a window rule should match on: resource class, falling back to resource name.</summary>
-    public string MatchClass =>
-        !string.IsNullOrWhiteSpace(ResourceClass) ? ResourceClass : ResourceName;
+    /// <summary>
+    /// The value KWin compares a rule's <c>wmclass</c> with: the resource class only (the resource
+    /// name is never consulted for class rules). Empty if the window has no class; then no class
+    /// rule can match it.
+    /// </summary>
+    public string MatchClass => ResourceClass;
 }

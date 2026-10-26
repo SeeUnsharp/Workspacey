@@ -16,6 +16,9 @@ public sealed partial class AssignWorkspaceViewModel(
 {
     private WindowInfo? _window;
 
+    /// <summary>The rule announced as "Saving updates that rule"; saving must update exactly this one.</summary>
+    private string? _existingRuleId;
+
     /// <summary>Raised when the dialog should close; the argument tells whether a rule was saved.</summary>
     public event EventHandler<bool>? CloseRequested;
 
@@ -77,10 +80,18 @@ public sealed partial class AssignWorkspaceViewModel(
     public async Task LoadAsync(WindowInfo window)
     {
         _window = window;
-        Caption = string.IsNullOrWhiteSpace(window.Caption) ? window.MatchClass : window.Caption;
+        Caption = new[] { window.Caption, window.MatchClass, window.ResourceName }
+            .FirstOrDefault(text => !string.IsNullOrWhiteSpace(text)) ?? "(unnamed window)";
         WindowClass = window.MatchClass;
         SelectedMatchMode = MatchModes[0];
         SelectedPolicy = Policies[0];
+
+        if (string.IsNullOrEmpty(window.MatchClass))
+        {
+            // KWin matches class rules against the resource class only; the resource name won't do.
+            ErrorMessage = "This window reports no window class, so a KWin rule cannot recognise it. " +
+                           "Enter a class under Matching only if you know what to match.";
+        }
 
         try
         {
@@ -89,6 +100,7 @@ public sealed partial class AssignWorkspaceViewModel(
             OnPropertyChanged(nameof(SuggestNewDesktop));
 
             var existing = await assignments.FindRuleForAsync(window);
+            _existingRuleId = existing?.Id;
             if (existing is not null)
             {
                 SelectedDesktop = Desktops.FirstOrDefault(d => existing.DesktopIds.Contains(d.Id));
@@ -135,7 +147,8 @@ public sealed partial class AssignWorkspaceViewModel(
                 WindowClass.Trim(),
                 SelectedMatchMode.Value,
                 SelectedPolicy.Value,
-                MoveWindowNow));
+                MoveWindowNow,
+                _existingRuleId));
 
             Saved = true;
             CloseRequested?.Invoke(this, true);

@@ -25,6 +25,14 @@ public sealed class KWinRulesRepository(string filePath) : IWorkspaceRuleReposit
     private const string WmClassMatchKey = "wmclassmatch";
     private const string DesktopsKey = "desktops";
     private const string DesktopsRuleKey = "desktopsrule";
+    private const string WmClassCompleteKey = "wmclasscomplete";
+    private const string TypesKey = "types";
+
+    // Match conditions besides the class; a "*match" value above 0 means the condition is active.
+    private static readonly string[] OtherMatchKeys = ["titlematch", "windowrolematch", "clientmachinematch"];
+
+    // NET::AllTypesMask (and -1, which KWin also treats as "all types").
+    private static readonly int[] AllWindowTypes = [-1, 0xFFFF];
 
     private readonly SemaphoreSlim _lock = new(1, 1);
 
@@ -63,6 +71,19 @@ public sealed class KWinRulesRepository(string filePath) : IWorkspaceRuleReposit
             var ids = GetRuleIds(file);
             if (!ids.Contains(rule.Id)) WriteRuleIds(file, [.. ids, rule.Id]);
         }, cancellationToken);
+
+    public async Task<bool> SetDesktopsAsync(string ruleId, IReadOnlyList<string> desktopIds, CancellationToken cancellationToken = default)
+    {
+        var found = false;
+        await ModifyAsync(file =>
+        {
+            if (file.FindGroup(ruleId) is not { } group) return false;
+            group.SetList(DesktopsKey, desktopIds);
+            found = true;
+            return true;
+        }, cancellationToken).ConfigureAwait(false);
+        return found;
+    }
 
     public Task DeleteAsync(string ruleId, CancellationToken cancellationToken = default) =>
         ModifyAsync(file =>
@@ -108,17 +129,30 @@ public sealed class KWinRulesRepository(string filePath) : IWorkspaceRuleReposit
             windowClass,
             (ClassMatchMode)match,
             desktops,
-            (RulePolicy)policy);
+            (RulePolicy)policy,
+            HasOtherConditions(group));
     }
 
-    private async Task ModifyAsync(Action<KConfigFile> modify, CancellationToken cancellationToken)
+    private static bool HasOtherConditions(KConfigGroup group) =>
+        group.GetBool(WmClassCompleteKey) == true ||
+        OtherMatchKeys.Any(key => group.GetInt(key) > 0) ||
+        (group.GetInt(TypesKey) is { } types && !AllWindowTypes.Contains(types));
+
+    private Task ModifyAsync(Action<KConfigFile> modify, CancellationToken cancellationToken) =>
+        ModifyAsync(file =>
+        {
+            modify(file);
+            return true;
+        }, cancellationToken);
+
+    /// <param name="modify">Returns <c>false</c> to skip writing (nothing changed).</param>
+    private async Task ModifyAsync(Func<KConfigFile, bool> modify, CancellationToken cancellationToken)
     {
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var file = await LoadAsync(cancellationToken).ConfigureAwait(false);
-            modify(file);
-            await SaveAtomicallyAsync(file, cancellationToken).ConfigureAwait(false);
+            if (modify(file)) await SaveAtomicallyAsync(file, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -139,7 +173,19 @@ public sealed class KWinRulesRepository(string filePath) : IWorkspaceRuleReposit
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
 
         var temp = $"{target}.{Environment.ProcessId}.tmp";
-        await File.WriteAllTextAsync(temp, file.ToString(), cancellationToken).ConfigureAwait(false);
-        File.Move(temp, target, overwrite: true);
+        try
+        {
+            await File.WriteAllTextAsync(temp, file.ToString(), cancellationToken).ConfigureAwait(false);
+
+            // The rename replaces the file, so carry its permissions over (e.g. a deliberate 0600).
+            if (!OperatingSystem.IsWindows() && File.Exists(target)) File.SetUnixFileMode(temp, File.GetUnixFileMode(target));
+
+            File.Move(temp, target, overwrite: true);
+        }
+        finally
+        {
+            // Only left over if writing or renaming failed; never leave junk next to the user's config.
+            File.Delete(temp);
+        }
     }
 }
