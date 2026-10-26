@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Workspacey.App/Workspacey.App.csproj" />
+    <Project Path="src/Workspacey.Core/Workspacey.Core.csproj" />
+    <Project Path="src/Workspacey.Kde/Workspacey.Kde.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Workspacey.Tests/Workspacey.Tests.csproj" />
+  </Folder>
+</Solution>

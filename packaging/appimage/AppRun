@@ -1,0 +1,5 @@
+#!/bin/sh
+# AppImage entry point. The AppImage runtime sets $APPIMAGE to the .AppImage file; Workspacey uses it
+# so the launchers it installs (global shortcut, application menu) survive the temporary mount point.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/bin/workspacey" "$@"

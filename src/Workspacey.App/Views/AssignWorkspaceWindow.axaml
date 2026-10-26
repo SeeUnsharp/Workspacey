@@ -1,0 +1,69 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:Workspacey.App.ViewModels"
+        xmlns:models="using:Workspacey.Core.Models"
+        mc:Ignorable="d" d:DesignWidth="460"
+        x:Class="Workspacey.App.Views.AssignWorkspaceWindow"
+        x:DataType="vm:AssignWorkspaceViewModel"
+        Title="Move to workspace"
+        Icon="/Assets/workspacey.png"
+        Width="460" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterScreen" Topmost="True" ShowInTaskbar="False">
+
+  <StackPanel Margin="20" Spacing="12">
+    <StackPanel Spacing="2">
+      <TextBlock Classes="caption" Text="Always open this window on" />
+      <TextBlock Classes="heading" Text="{Binding Caption}" TextTrimming="CharacterEllipsis" />
+    </StackPanel>
+
+    <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding ExistingRuleText}"
+               IsVisible="{Binding ExistingRuleText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+    <ListBox x:Name="DesktopList" ItemsSource="{Binding Desktops}" SelectedItem="{Binding SelectedDesktop}"
+             MaxHeight="280">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="models:VirtualDesktop">
+          <TextBlock Text="{Binding DisplayName}" />
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+    <TextBlock Classes="caption" Text="Tip: press 1–9 to choose a workspace, then Enter to save." />
+
+    <Border Classes="hint" IsVisible="{Binding SuggestNewDesktop}">
+      <TextBlock Text="You only have one workspace, so there is nowhere to send this window yet. Create a second one, e.g. &quot;Gaming&quot;: type a name below and press Enter." />
+    </Border>
+
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+      <TextBox x:Name="NewDesktopNameBox" Text="{Binding NewDesktopName}"
+               PlaceholderText="New workspace name (required, Enter adds it)" />
+      <Button Grid.Column="1" Content="Add workspace" Command="{Binding AddDesktopCommand}" />
+    </Grid>
+
+    <Expander Header="Matching" HorizontalAlignment="Stretch">
+      <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+        <TextBlock Text="Window class" VerticalAlignment="Center" />
+        <TextBox Grid.Column="1" Text="{Binding WindowClass}" />
+
+        <TextBlock Grid.Row="1" Text="Match" VerticalAlignment="Center" />
+        <ComboBox Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding MatchModes}" SelectedItem="{Binding SelectedMatchMode}" />
+
+        <TextBlock Grid.Row="2" Text="Behaviour" VerticalAlignment="Center" />
+        <ComboBox Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding Policies}" SelectedItem="{Binding SelectedPolicy}" />
+      </Grid>
+    </Expander>
+
+    <CheckBox Content="Move the window there now" IsChecked="{Binding MoveWindowNow}" />
+
+    <TextBlock Classes="error" Text="{Binding ErrorMessage}"
+               IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Command="{Binding CancelCommand}" IsCancel="True" />
+      <Button Content="Save" Classes="accent" Command="{Binding SaveCommand}" IsDefault="True" />
+    </StackPanel>
+  </StackPanel>
+</Window>

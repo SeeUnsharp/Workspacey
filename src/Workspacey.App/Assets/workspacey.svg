@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Workspacey: a window travels from one workspace into the highlighted target workspace. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3daee9"/>
+      <stop offset="1" stop-color="#1b6fb8"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="4" y="4" width="56" height="56" rx="12" fill="url(#bg)"/>
+
+  <!-- Workspace grid -->
+  <rect x="11" y="11" width="19" height="19" rx="3.5" fill="#fff" fill-opacity="0.28"/>
+  <rect x="34" y="11" width="19" height="19" rx="3.5" fill="#fff" fill-opacity="0.28"/>
+  <rect x="11" y="34" width="19" height="19" rx="3.5" fill="#fff" fill-opacity="0.28"/>
+  <rect x="34" y="34" width="19" height="19" rx="3.5" fill="#fff"/>
+
+  <!-- Ghost of the window on its old workspace -->
+  <rect x="14.5" y="15" width="12" height="9" rx="1.5" fill="none" stroke="#fff" stroke-opacity="0.85"
+        stroke-width="1.5" stroke-dasharray="2.5 2"/>
+
+  <!-- The window on the target workspace -->
+  <rect x="37.5" y="38.5" width="12" height="10" rx="1.5" fill="#1b6fb8"/>
+  <rect x="37.5" y="38.5" width="12" height="3" rx="1.5" fill="#3daee9"/>
+
+  <!-- Move arrow -->
+  <path d="M20.5 26.5 C20.5 36 23 40.5 30.5 41.5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M27 37.6 L31.2 41.6 L26.6 45" fill="none" stroke="#fff" stroke-width="2.6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

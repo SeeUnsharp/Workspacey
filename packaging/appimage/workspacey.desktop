@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Workspacey
+GenericName=Workspace Rules
+Comment=Send games and windows to a fixed workspace
+Exec=workspacey
+Icon=workspacey
+Terminal=false
+Categories=Utility;Settings;DesktopSettings;
+Keywords=workspace;virtual desktop;window rule;game;kwin;
+StartupWMClass=workspacey

@@ -1,0 +1,118 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:Workspacey.App.ViewModels"
+        xmlns:models="using:Workspacey.Core.Models"
+        mc:Ignorable="d" d:DesignWidth="640" d:DesignHeight="560"
+        x:Class="Workspacey.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="Workspacey"
+        Icon="/Assets/workspacey.png"
+        Width="640" Height="560" MinWidth="480" MinHeight="400"
+        WindowStartupLocation="CenterScreen">
+
+  <DockPanel Margin="20">
+
+    <!-- Status line -->
+    <TextBlock DockPanel.Dock="Bottom" Margin="0,12,0,0" TextWrapping="Wrap"
+               Text="{Binding StatusMessage}"
+               IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+               Classes.error="{Binding StatusIsError}" />
+
+    <StackPanel DockPanel.Dock="Top" Spacing="8">
+      <TextBlock Classes="heading" Text="Pick shortcut" />
+      <TextBlock Classes="caption" TextWrapping="Wrap"
+                 Text="Press this key combination anywhere: the cursor turns into a crosshair, click a window or game and choose the workspace it should always open on." />
+
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <ToggleButton x:Name="RecorderButton" MinWidth="240"
+                      IsChecked="{Binding IsRecording, Mode=OneWay}"
+                      Command="{Binding StartRecordingCommand}"
+                      Content="{Binding RecorderText}"
+                      ToolTip.Tip="Click, then press the new key combination" />
+        <Button Content="Apply" Classes="accent" Command="{Binding ApplyShortcutCommand}" />
+        <Button Content="Clear" Command="{Binding ClearShortcutCommand}" />
+      </StackPanel>
+      <TextBlock Classes="caption">
+        <Run Text="Active:" />
+        <Run Text="{Binding ShortcutText}" FontWeight="SemiBold" />
+      </TextBlock>
+
+      <CheckBox Content="Show Workspacey in the application menu"
+                IsChecked="{Binding IsInApplicationMenu, Mode=OneWay}"
+                Command="{Binding ToggleApplicationMenuCommand}"
+                ToolTip.Tip="Adds a launcher for this settings window to the KDE application menu" />
+
+      <Separator Margin="0,12" />
+
+      <Grid ColumnDefinitions="*,Auto,Auto">
+        <TextBlock Classes="heading" Text="Workspace rules" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Margin="0,0,8,0" Content="Refresh" Command="{Binding RefreshRulesCommand}" />
+        <Button Grid.Column="2" Classes="accent" Content="Pick window now…" Command="{Binding PickWindowCommand}" />
+      </Grid>
+      <TextBlock Classes="caption" TextWrapping="Wrap"
+                 Text="KWin window rules that place windows on a workspace. They are also listed in System Settings → Window Management → Window Rules." />
+
+      <Border Classes="hint" IsVisible="{Binding SuggestNewDesktop}">
+        <TextBlock Text="You only have one workspace. Add a second one, e.g. &quot;Gaming&quot;, so Workspacey has somewhere to send your games and windows." />
+      </Border>
+
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <TextBox Text="{Binding NewDesktopName}" PlaceholderText="New workspace name (required)">
+          <TextBox.KeyBindings>
+            <KeyBinding Gesture="Enter" Command="{Binding AddDesktopCommand}" />
+          </TextBox.KeyBindings>
+        </TextBox>
+        <Button Grid.Column="1" Content="Add workspace" Command="{Binding AddDesktopCommand}" />
+      </Grid>
+      <HyperlinkButton Padding="0" Content="Manage workspaces in KDE System Settings…"
+                       Command="{Binding OpenWorkspaceSettingsCommand}"
+                       ToolTip.Tip="Rename, reorder or remove workspaces (System Settings → Virtual Desktops)" />
+
+      <TextBox x:Name="SearchBox" Margin="0,8,0,0" Text="{Binding SearchText}"
+               PlaceholderText="Search by name, window class or workspace (Ctrl+F)">
+        <TextBox.KeyBindings>
+          <KeyBinding Gesture="Escape" Command="{Binding ClearSearchCommand}" />
+        </TextBox.KeyBindings>
+        <TextBox.InnerRightContent>
+          <Button Content="✕" Padding="8,0" Background="Transparent" BorderThickness="0"
+                  Command="{Binding ClearSearchCommand}" ToolTip.Tip="Clear search (Esc)"
+                  IsVisible="{Binding SearchText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </TextBox.InnerRightContent>
+      </TextBox>
+    </StackPanel>
+
+    <Border Margin="0,8,0,0" BorderThickness="1" CornerRadius="4"
+            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}">
+      <Panel>
+        <TextBlock Text="{Binding EmptyListText}" HorizontalAlignment="Center" VerticalAlignment="Center" Classes="caption"
+                   IsVisible="{Binding !Rules.Count}" />
+        <ListBox ItemsSource="{Binding Rules}" Background="Transparent">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:RuleItemViewModel">
+              <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2">
+                <StackPanel VerticalAlignment="Center">
+                  <TextBlock Text="{Binding Description}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{Binding Details}" Classes="caption" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Margin="12,0" MinWidth="160" VerticalAlignment="Center"
+                          ItemsSource="{Binding Desktops}" SelectedItem="{Binding SelectedDesktop}"
+                          PlaceholderText="(missing workspace)"
+                          ToolTip.Tip="Workspace these windows open on">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:VirtualDesktop">
+                      <TextBlock Text="{Binding DisplayName}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Grid.Column="2" Content="Delete" VerticalAlignment="Center"
+                        Command="{Binding DeleteCommand}" CommandParameter="{Binding}" />
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Panel>
+    </Border>
+  </DockPanel>
+</Window>
