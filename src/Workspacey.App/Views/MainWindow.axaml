@@ -84,7 +84,7 @@
     </StackPanel>
 
     <Border Margin="0,8,0,0" BorderThickness="1" CornerRadius="4"
-            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}">
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
       <Panel>
         <TextBlock Text="{Binding EmptyListText}" HorizontalAlignment="Center" VerticalAlignment="Center" Classes="caption"
                    IsVisible="{Binding !Rules.Count}" />
