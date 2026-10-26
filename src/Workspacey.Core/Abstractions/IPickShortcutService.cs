@@ -18,6 +18,13 @@ public interface IPickShortcutService
     /// </summary>
     Task<ShortcutResult> SetAsync(KeyChord chord, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Read-only check whether <paramref name="chord"/> could be set, so a conflict can be shown right
+    /// after recording. <see cref="ShortcutResult.Accepted"/> means "available".
+    /// </summary>
+    Task<ShortcutResult> CheckAvailabilityAsync(KeyChord chord, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the shortcut and everything installed for it, so it no longer appears in the desktop's shortcut settings.</summary>
     Task ClearAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

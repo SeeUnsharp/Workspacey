@@ -31,6 +31,7 @@ public sealed class KGlobalAccelPickShortcutService(
     private static readonly DBusMethod BlockGlobalShortcuts = Method("blockGlobalShortcuts");
     private static readonly DBusMethod GlobalShortcutAvailable = Method("globalShortcutAvailable");
     private static readonly DBusMethod GlobalShortcutsByKey = Method("globalShortcutsByKey");
+    private static readonly DBusMethod Unregister = Method("unregister");
 
     public Task SetGlobalShortcutsPausedAsync(bool paused, CancellationToken cancellationToken = default) =>
         BlockGlobalShortcuts
@@ -58,11 +59,11 @@ public sealed class KGlobalAccelPickShortcutService(
 
         // setShortcutKeys does not reliably refuse taken keys (e.g. KWin's own Meta+G is accepted, then
         // never fires), so check first, like KDE's shortcut editor does.
-        if (!await IsAvailableAsync(combination, cancellationToken).ConfigureAwait(false))
+        var availability = await CheckAvailabilityAsync(chord, cancellationToken).ConfigureAwait(false);
+        if (!availability.Accepted)
         {
-            var owner = await FindOwnerAsync(combination, cancellationToken).ConfigureAwait(false);
-            logger.LogWarning("{Chord} is already used by {Owner}", chord, owner ?? "another action");
-            return new ShortcutResult(Accepted: false, owner);
+            logger.LogWarning("{Chord} is already used by {Owner}", chord, availability.ConflictingAction ?? "another action");
+            return availability;
         }
 
         await desktopIntegration.InstallPickLauncherAsync(cancellationToken).ConfigureAwait(false);
@@ -89,6 +90,15 @@ public sealed class KGlobalAccelPickShortcutService(
         }
 
         return new ShortcutResult(accepted);
+    }
+
+    public async Task<ShortcutResult> CheckAvailabilityAsync(KeyChord chord, CancellationToken cancellationToken = default)
+    {
+        var combination = chord.ToQtKeyCombination();
+        if (await IsAvailableAsync(combination, cancellationToken).ConfigureAwait(false)) return new ShortcutResult(Accepted: true);
+
+        var owner = await FindOwnerAsync(combination, cancellationToken).ConfigureAwait(false);
+        return new ShortcutResult(Accepted: false, owner);
     }
 
     /// <summary>True if no action of another component uses the combination.</summary>
@@ -158,8 +168,22 @@ public sealed class KGlobalAccelPickShortcutService(
 
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(KdeDesktopIntegration.PickEntryPath)) return;
-        await WriteKeysAsync([], cancellationToken).ConfigureAwait(false);
+        // Removing the action (not just emptying its keys) also drops it from System Settings → Shortcuts.
+        var removed = await Unregister
+            .CallAsync(
+                connection,
+                static (message, _) => message.GetBodyReader().ReadBool(),
+                "ss",
+                (ref MessageWriter writer) =>
+                {
+                    writer.WriteString(ActionId[0]);
+                    writer.WriteString(ActionId[1]);
+                })
+            .WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        logger.LogInformation("Unregistered pick shortcut (was registered: {Removed})", removed);
+
+        await desktopIntegration.RemovePickLauncherAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private Task<List<int[]>> ReadKeysAsync(CancellationToken cancellationToken) =>
